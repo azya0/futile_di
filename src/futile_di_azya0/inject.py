@@ -1,76 +1,50 @@
+from contextlib import suppress
 from functools import wraps
-from inspect import isasyncgen, iscoroutinefunction, signature
-from typing import Any, Generator, AsyncGenerator, Sequence, Callable
+from inspect import iscoroutinefunction, signature
+from typing import Any, Generator, AsyncGenerator
 
-from .depends import Depends, DependsType
+from .core.process_depends import (
+    process_depends, SyncContextState,
+    process_depends_async, AsyncContextState,
+    process_arg_sequence
+)
+from .depends import Depends
 
 
-class DependsAsyncError(ValueError):
+class ContextHolder:
     def __init__(self):
-        super().__init__("can't process async depends in sync wrapped function")
+        self.__sync_context:  list[Generator] = []
+        self.__async_context: list[AsyncGenerator] = []
 
-
-def process_depends[T](depends: Depends[T]) -> tuple[Generator[T] | None, T]:
-    depends_type = depends.get_type()
-
-    match(depends_type):
-        case DependsType.VALUE:
-            return None, depends.injected
-        case DependsType.SYNC:
-            return None, depends.injected()
-        case DependsType.ASYNC | DependsType.ASYNC_GENERATOR:
-            raise DependsAsyncError()
-        case DependsType.GENERATOR:
-            generator: Generator[T] = depends.injected()
-
-            return generator, next(generator)
+    def add_sync_context(self, context: Generator):
+        self.__sync_context.append(context)
     
-    raise BaseException(f"process_depends can't proccess DependsType: {depends_type}")
+    def add_async_context(self, context: AsyncGenerator):
+        self.__async_context.append(context)
+    
+    def close_sync(self):
+        for context in self.__sync_context:
+            try:
+                next(context)
+            except StopIteration:
+                pass
+        
+        self.__sync_context.clear()
 
+    async def close_async(self):
+        self.close_sync()
 
-async def process_depends_async[T](depends: Depends[T]) -> tuple[AsyncGenerator[T] | None, T]:
-    try:
-        return process_depends(depends)
-    except DependsAsyncError:
-        pass
-
-    match(depends.get_type()):
-        case DependsType.ASYNC:
-            return None, await depends.injected()
-        case DependsType.ASYNC_GENERATOR:
-            generator: AsyncGenerator[T] = depends.injected()
-
-            return generator, await anext(generator)
+        for context in self.__async_context:
+            try:
+                await anext(context)
+            except StopAsyncIteration:
+                pass
+        
+        self.__async_context.clear()
 
 
 def inject(old_function):
-    context_holder:     list[Generator | AsyncGenerator] = []
-    
-    def close_context():
-        for context in context_holder:
-            try:
-                next(context)
-            except StopIteration:
-                pass
-        
-        context_holder.clear()
-    
-    async def close_context_async():
-        for context in context_holder:
-            if isasyncgen(context):
-                try:
-                    await anext(context)
-                except StopAsyncIteration:
-                    pass
-
-                continue
-
-            try:
-                next(context)
-            except StopIteration:
-                pass
-        
-        context_holder.clear()
+    context_holder: ContextHolder = ContextHolder()
 
     old_function_sig = signature(old_function)
 
@@ -83,64 +57,29 @@ def inject(old_function):
     def process_args_kwargs(
             args: tuple[Any], kwargs: dict[str, Any],
             processed_args: list[Any], processed_kwargs: dict[str, Any]
-        ) -> Generator[Depends, tuple[Any, Any]]:
-        def process_arg[T](arg: Any) -> Generator[Depends[T], tuple[Any, T], Any | T]:
-            if not isinstance(arg, Depends):
-                return arg
-            
-            context, value = yield arg
-            
-            if context is not None:
-                context_holder.append(context)
-            
-            return value
-
-        def process_sequence[T, R](
-                sequence: Sequence[T],
-                get_arg: Callable[[T], R],
-                callback: Callable[[T, R], None]
-            ) -> Generator[Depends, tuple[Any, Any], None]:
-            for arg in sequence:
-                generator = process_arg(get_arg(arg))
-
-                try:
-                    depends = next(generator)
-
-                    result = yield depends
-
-                    generator.send(result)
-
-                    next(generator)
-                except StopIteration as exception:
-                    callback(arg, exception.value)
-
-        args_generator = process_sequence(
+        ) -> Generator[Depends, Any]:
+        
+        args_generator = process_arg_sequence(
             sequence=args,
             get_arg=lambda value: value,
             callback=lambda _, result : processed_args.append(result)
         )
 
-        try:
-            while True:
-                result = yield next(args_generator)
+        for _, depends in args_generator:
+            result_arg = yield depends
 
-                args_generator.send(result)
-        except StopIteration:
-            pass
+            processed_args.append(result_arg)
 
-        kwargs_generator = process_sequence(
+        kwargs_generator = process_arg_sequence(
             sequence=kwargs.items(),
             get_arg=lambda items: items[1],
             callback=lambda items, result : processed_kwargs.__setitem__(items[0], result)
         )
 
-        try:
-            while True:
-                result = yield next(kwargs_generator)
+        for key, depends in kwargs_generator:
+            result_kwarg = yield depends
 
-                kwargs_generator.send(result)
-        except StopIteration:
-            pass
+            processed_kwargs[key] = result_kwarg
     
     @wraps(old_function)
     def new_function(*args, **kwargs):
@@ -149,19 +88,20 @@ def inject(old_function):
         
         args, kwargs = update_kwargs_with_defaults(args, kwargs)
 
-        generator = process_args_kwargs(args, kwargs, processed_args, processed_kwargs)
+        depends_generator = process_args_kwargs(args, kwargs, processed_args, processed_kwargs)
 
-        try:
-            while True:
-                to_process = next(generator)
+        for depends in depends_generator:
+            context, value = process_depends(depends)
 
-                generator.send(process_depends(to_process))
-        except StopIteration:
-            pass
+            if context.get_state() == SyncContextState.GENERATOR:
+                context_holder.add_sync_context(context.get_generator())
+            
+            with suppress(StopIteration):
+                depends_generator.send(value)
 
         result = old_function(*processed_args, **processed_kwargs)
 
-        close_context()
+        context_holder.close_sync()
         
         return result
     
@@ -172,19 +112,27 @@ def inject(old_function):
         
         args, kwargs = update_kwargs_with_defaults(args, kwargs)
 
-        generator = process_args_kwargs(args, kwargs, processed_args, processed_kwargs)
+        depends_generator = process_args_kwargs(args, kwargs, processed_args, processed_kwargs)
 
-        try:
-            while True:
-                to_process = next(generator)
+        for depends in depends_generator:
+            context, value = await process_depends_async(depends)
 
-                generator.send(await process_depends_async(to_process))
-        except StopIteration:
-            pass
+            context_state = context.get_state()
+
+            if context_state != AsyncContextState.NO_CONTEXT:
+                generator = context.get_generator()
+
+                if context_state == AsyncContextState.GENERATOR:
+                    context_holder.add_sync_context(generator)
+                else:
+                    context_holder.add_async_context(generator)
+
+            with suppress(StopIteration):
+                depends_generator.send(value)
         
         result = await old_function(*processed_args, **processed_kwargs)
 
-        await close_context_async()
+        await context_holder.close_async()
 
         return result
 
