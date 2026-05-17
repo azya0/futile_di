@@ -1,7 +1,7 @@
 import asyncio
 from typing import AsyncGenerator, Generator
 
-from futile_di import Depends, inject, DependsAsyncError
+from src.futile_di_azya0 import Depends, inject, DependsAsyncError
 
 
 def test_no_depends():
