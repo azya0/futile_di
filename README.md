@@ -32,6 +32,9 @@ def get_user(generator=get_session()):
 Вместо этого можно использовать механизм инъекции зависимости, который будет делать это "под капотом":
 
 ```python
+from futile_di_azya0 import Depends, inject
+
+
 def get_session() -> Session:
     with create_session() as session:
         yield session
