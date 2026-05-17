@@ -44,8 +44,6 @@ class ContextHolder:
 
 
 def inject(old_function):
-    context_holder: ContextHolder = ContextHolder()
-
     old_function_sig = signature(old_function)
 
     def update_kwargs_with_defaults(args, kwargs) -> tuple[tuple[Any], dict[str, Any]]:
@@ -83,6 +81,7 @@ def inject(old_function):
     
     @wraps(old_function)
     def new_function(*args, **kwargs):
+        context_holder: ContextHolder = ContextHolder()
         processed_args:     list[Any] = []
         processed_kwargs:   dict[str, Any] = {}
         
@@ -107,6 +106,7 @@ def inject(old_function):
     
     @wraps(old_function)
     async def new_async_function(*args, **kwargs):
+        context_holder: ContextHolder = ContextHolder()
         processed_args:     list[Any] = []
         processed_kwargs:   dict[str, Any] = {}
         
