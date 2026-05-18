@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
+from functools import lru_cache
 from typing import AsyncGenerator, Generator
 
 from src.futile_di_azya0 import Depends, inject, DependsAsyncError
@@ -478,7 +479,59 @@ def test_multiple_nested_depends_semiasync():
         return a + b + c
     
     @inject
-    async def some_function(a: int = Depends(one_generator), b: int = Depends(multiple_function), c: int = Depends(5)):
+    async def some_function(a: int = Depends(one_generator), b: int = Depends(multiple_function), c: int = Depends(5)) -> int:
         return a + b + c
     
     assert asyncio.run(some_function()) == 9
+
+
+def test_singleton():
+    @lru_cache
+    def singleton_generator() -> Generator[int]:
+        counter = 0
+
+        while True:
+            counter += 1
+
+            yield counter
+    
+    @inject
+    def some_function(a: int = Depends(singleton_generator), b: int = Depends(singleton_generator), c: int = Depends(singleton_generator)) -> int:
+        return a + b + c
+    
+    assert some_function() == 6
+
+
+def test_multiple_decorators():
+    def some_decorator(old_function):
+        def new_function():
+            return old_function() + 1
+        return new_function
+    
+    @some_decorator
+    @some_decorator
+    def one_function():
+        return 2
+    
+    @inject
+    def some_function(a: int = Depends(one_function)):
+        return a + 1
+    
+    assert some_function() == 5
+
+
+def test_multiple_decorators_on_generator():
+    def do_nothing(old_function):
+        return old_function
+    
+    @do_nothing
+    @do_nothing
+    @do_nothing
+    def some_generator() -> Generator[float]:
+        yield 1.1
+    
+    @inject
+    def some_function(a: int = Depends(some_generator)) -> float:
+        return a + 2.2
+    
+    assert some_function() == 1.1 + 2.2

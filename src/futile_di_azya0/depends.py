@@ -1,6 +1,6 @@
 from __future__ import annotations
 from enum import Enum
-from inspect import iscoroutinefunction, isasyncgenfunction, isgeneratorfunction, isfunction
+from inspect import iscoroutinefunction, isasyncgenfunction, isgeneratorfunction, isfunction, unwrap
 from typing import Callable
 from inspect import signature, Parameter, Signature
 
@@ -15,16 +15,18 @@ class DependsType(Enum):
 
 class Depends[D: dict[str, Depends], T]:
     def _get_type(self) -> DependsType:
-        if isasyncgenfunction(self.injected):
+        injected = unwrap(self.injected)
+
+        if isasyncgenfunction(injected):
             return DependsType.ASYNC_GENERATOR
         
-        if isgeneratorfunction(self.injected):
+        if isgeneratorfunction(injected):
             return DependsType.GENERATOR
         
-        if iscoroutinefunction(self.injected):
+        if iscoroutinefunction(injected):
             return DependsType.ASYNC
         
-        if isfunction(self.injected):
+        if isfunction(injected):
             return DependsType.SYNC
 
         return DependsType.VALUE
