@@ -1,1 +1,5 @@
-from .depends_exceptions import DependsAsyncError, SyncContextResultError, AsyncContextResultError
+from .depends_exceptions import (
+    DependsAsyncError, SyncContextResultError,
+    AsyncContextResultError, DependsValueWrappeUnprocessedError, 
+    DependsValueWrappeNoNameError
+)
