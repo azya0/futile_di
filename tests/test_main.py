@@ -452,7 +452,7 @@ def test_multiple_nested_depends():
 
 def test_semiasync_exception():
     async def one_generator() -> AsyncGenerator[int]:
-        asyncio.sleep(0.01)
+        await asyncio.sleep(0.01)
 
         yield 1
     
@@ -471,7 +471,7 @@ def test_semiasync_exception():
 
 def test_multiple_nested_depends_semiasync():
     async def one_generator() -> AsyncGenerator[int]:
-        asyncio.sleep(0.01)
+        await asyncio.sleep(0.01)
         
         yield 1
     
