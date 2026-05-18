@@ -139,9 +139,42 @@ assert not context.is_open
 
 * Зависимость с этим контекстом имела некоторую глубину вложенности
 * Контекст сохранялся до конца выполнения функции, которую мы обернули в ```@inject```
-* Асинхронные зависимости могли зависеть от синхронных и наоборот
+* Асинхронные вложенные зависимости могли зависеть от синхронных вложенных и наоборот (для поддержки асинхронных зависимостей оборачеваемая в ```@inject``` исходная функция обязана быть асинхронной)
 
 Этот код был взят из теста к библиотеке. Он показывает работоспособность всех вышеперечисленных запросов.
+
+
+## Пример для тестов aiohttp
+
+
+```python
+def self_mock_generator() -> Generator[aioresponses]:
+    with aioresponses() as mock:
+        mock.get(
+            "https://api.example.com/status",
+            payload={"status": True},
+            status=200
+        )
+
+        yield mock
+
+@inject
+def test_get_status_self_injection(mock: aioresponses = Depends(self_mock_generator)):
+    async def get_status(session: ClientSession = Depends(get_session)) -> AsyncGenerator[ClientResponse]:
+        async with session.get("https://api.example.com/status") as response:
+            yield response
+    
+    @inject
+    async def enpoint_example(response: ClientResponse = Depends(get_status)) -> bool:
+        await asyncio.sleep(0.01)
+        
+        return (await response.json())["status"]
+    
+    assert asyncio.run(enpoint_example())
+```
+
+В этом тесте вместо привычной ```pytest.fixture``` используется инъекция из этой библиотеки, чтобы открыть контекст мока и поддерживать его, пока тест не законится.
+Далее идёт тест для сохранения асинхронного контекста ```session``` и асинхронного контекста ```response```
 
 
 ## Тесты
