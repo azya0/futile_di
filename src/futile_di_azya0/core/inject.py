@@ -4,7 +4,7 @@ from typing import Any
 
 from .wrappers_data import WrapperData
 from .context_processors import process_sync_context, process_async_context
-from .wrappers_processpr import main_new_function, NewFuncState
+from .wrappers_processor import main_new_function, NewFuncState
 
 
 def inject(old_function):
