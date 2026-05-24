@@ -1,3 +1,2 @@
-from .depends import Depends
-from .inject import inject
+from .core import Depends, inject
 from .exceptions import DependsAsyncError

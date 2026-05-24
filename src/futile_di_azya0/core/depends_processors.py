@@ -5,7 +5,7 @@ from enum import IntEnum
 from typing import Generator, AsyncGenerator, Sequence, Callable, Any
 from queue import Queue
 
-from ..depends import Depends, DependsType
+from .depends import Depends, DependsType
 from ..exceptions import (
     DependsAsyncError, SyncContextResultError,
     AsyncContextResultError, DependsValueWrappeUnprocessedError,

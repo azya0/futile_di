@@ -1,4 +1,4 @@
-from ..depends import Depends
+from ..core.depends import Depends
 
 
 class DependsAsyncError(ValueError):
